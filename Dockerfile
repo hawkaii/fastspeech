@@ -6,7 +6,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     CONDA_DIR=/opt/conda \
-    PATH=/opt/conda/bin:$PATH
+    PATH=/opt/conda/bin:$PATH \
+    PIP_TIMEOUT=300 \
+    PIP_RETRIES=5 \
+    PIP_DEFAULT_TIMEOUT=300
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
