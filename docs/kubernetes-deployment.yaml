@@ -1,0 +1,155 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: indic-tts
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: indic-tts-config
+  namespace: indic-tts
+data:
+  GCS_BUCKET: "gs://your-indic-tts-bucket"
+  DEVICE: "cuda"
+  PRELOAD_MODELS: "hindi:male,hindi:female,bengali:male"
+  LOG_LEVEL: "info"
+  WORKERS: "1"
+  MAX_TEXT_LENGTH: "5000"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: indic-tts-models-pvc
+  namespace: indic-tts
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: indic-tts-api
+  namespace: indic-tts
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: indic-tts-api
+  template:
+    metadata:
+      labels:
+        app: indic-tts-api
+    spec:
+      containers:
+      - name: indic-tts
+        image: gcr.io/YOUR_PROJECT_ID/indic-tts:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: GCS_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: indic-tts-config
+              key: GCS_BUCKET
+        - name: DEVICE
+          valueFrom:
+            configMapKeyRef:
+              name: indic-tts-config
+              key: DEVICE
+        - name: PRELOAD_MODELS
+          valueFrom:
+            configMapKeyRef:
+              name: indic-tts-config
+              key: PRELOAD_MODELS
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: indic-tts-config
+              key: LOG_LEVEL
+        - name: WORKERS
+          valueFrom:
+            configMapKeyRef:
+              name: indic-tts-config
+              key: WORKERS
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "2"
+            nvidia.com/gpu: 1
+          limits:
+            memory: "16Gi"
+            cpu: "4"
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: models-storage
+          mountPath: /models
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: models-storage
+        persistentVolumeClaim:
+          claimName: indic-tts-models-pvc
+      nodeSelector:
+        cloud.google.com/gke-accelerator: nvidia-tesla-t4
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: indic-tts-service
+  namespace: indic-tts
+spec:
+  type: LoadBalancer
+  selector:
+    app: indic-tts-api
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+    name: http
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: indic-tts-hpa
+  namespace: indic-tts
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: indic-tts-api
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
